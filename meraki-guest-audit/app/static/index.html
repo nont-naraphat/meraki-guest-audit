@@ -43,7 +43,7 @@
   <div class="wrap">
     <table id="tbl">
       <thead><tr>
-        <th>ชื่อ Guest</th><th>อีเมล Guest</th><th>Sponsor</th><th>Description</th><th>MAC</th><th>IP</th>
+        <th>ชื่อ Guest</th><th>อีเมล Guest</th><th>Sponsor</th><th>Description</th><th>สถานะ</th><th>MAC</th><th>IP</th>
         <th>SSID</th><th>Duration</th><th>Authorized</th><th>Expires</th><th>First Seen</th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -59,6 +59,11 @@ function qs(){ const p=new URLSearchParams();
   return p.toString(); }
 function fmt(t){ return t ? new Date(t).toLocaleString('th-TH') : '—'; }
 function dur(s){ if(!s) return '—'; const h=Math.round(s/3600); return h>=24?(h/24).toFixed(0)+' วัน':h+' ชม.'; }
+function badge(v){
+  if(v===1||v===true) return '<span style="color:#5dcaa5">✔ ผ่าน</span>';
+  if(v===0||v===false) return '<span style="color:#f09595">✘ หมดสิทธิ์</span>';
+  return '<span style="color:#8b94a7">—</span>';
+}
 
 async function load(){
   const r = await fetch('/api/sessions?'+qs());
@@ -68,7 +73,7 @@ async function load(){
   for(const x of data){
     const tr=document.createElement('tr');
     tr.innerHTML = `<td>${x.guest_name||'—'}</td><td>${x.guest_email||'—'}</td>
-      <td>${x.sponsor_email||'—'}</td><td>${x.client_description||'—'}</td><td class="mono">${x.client_mac||'—'}</td>
+      <td>${x.sponsor_email||'—'}</td><td>${x.client_description||'—'}</td><td>${badge(x.is_authorized)}</td><td class="mono">${x.client_mac||'—'}</td>
       <td class="mono">${x.client_ip||'—'}</td><td>${x.ssid||'—'}</td>
       <td>${dur(x.total_requested_time)}</td><td>${fmt(x.authorized_at)}</td>
       <td>${fmt(x.expires_at)}</td><td>${fmt(x.first_captured_at)}</td>`;
