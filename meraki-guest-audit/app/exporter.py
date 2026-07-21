@@ -21,6 +21,7 @@ HEADERS = [
     ("client_ip", "IP"),
     ("ssid", "SSID"),
     ("auth_reason", "Auth"),
+    ("is_authorized", "สถานะ (1=ผ่าน/0=หมดสิทธิ์)"),
     ("total_requested_time", "Duration (sec)"),
     ("authorized_at", "Authorized At (UTC)"),
     ("expires_at", "Expires At (UTC)"),
