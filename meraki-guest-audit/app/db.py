@@ -1,6 +1,6 @@
 """
 db.py -- SQLite เก็บ audit log ถาวร (dedup เป็น "session")
-session_key = mac | guest_email | sponsor_email | total_requested_time | authorized_hour
+session_key = mac | guest_email | sponsor_email | total_requested_time | authorized_at
 """
 import os
 import sqlite3
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS guest_sessions (
     expires_label         TEXT,
     authorized_at         TEXT,
     expires_at            TEXT,
+    is_authorized         INTEGER,
     first_captured_at     TEXT,
     last_captured_at      TEXT,
     raw_json              TEXT
@@ -45,11 +46,20 @@ def init():
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     with _conn() as c:
         c.executescript(_SCHEMA)
+        # migration: เพิ่ม column is_authorized ให้ DB เก่าที่ยังไม่มี
+        cols = [r["name"] for r in c.execute("PRAGMA table_info(guest_sessions)")]
+        if "is_authorized" not in cols:
+            c.execute("ALTER TABLE guest_sessions ADD COLUMN is_authorized INTEGER")
+
+
+def _b(v):
+    """bool/None -> 1/0/None สำหรับเก็บใน SQLite"""
+    return None if v is None else (1 if v else 0)
 
 
 def _make_key(rec: dict) -> str:
-    # bucket authorized_at เป็นราย "ชั่วโมง" เพื่อให้ session เดิม upsert, session ใหม่เป็นแถวใหม่
-    anchor = (rec.get("authorized_at") or "")[:13]  # YYYY-MM-DDTHH
+    # ใช้ authorized_at เต็ม (จาก official API แม่นและคงที่) เป็น anchor -> ไม่ซ้ำ
+    anchor = rec.get("authorized_at") or ""
     raw = "|".join([
         (rec.get("client_mac") or "").lower(),
         (rec.get("guest_email") or "").lower(),
@@ -73,10 +83,11 @@ def upsert_sessions(records: list[dict]) -> list[dict]:
             if exists:
                 c.execute(
                     """UPDATE guest_sessions
-                       SET last_captured_at=?, client_ip=?, expires_label=?, expires_at=?, raw_json=?
+                       SET last_captured_at=?, client_ip=?, expires_label=?, expires_at=?,
+                           is_authorized=?, raw_json=?
                        WHERE session_key=?""",
                     (now, rec.get("client_ip"), rec.get("expires_label"),
-                     rec.get("expires_at"), rec.get("raw_json"), key),
+                     rec.get("expires_at"), _b(rec.get("is_authorized")), rec.get("raw_json"), key),
                 )
             else:
                 c.execute(
@@ -84,14 +95,15 @@ def upsert_sessions(records: list[dict]) -> list[dict]:
                        (session_key, guest_name, guest_email, sponsor_email, client_mac,
                         client_ip, client_id, client_description, ssid, auth_reason,
                         total_requested_time, authorized_label, expires_label,
-                        authorized_at, expires_at, first_captured_at, last_captured_at, raw_json)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        authorized_at, expires_at, is_authorized,
+                        first_captured_at, last_captured_at, raw_json)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (key, rec.get("guest_name"), rec.get("guest_email"), rec.get("sponsor_email"),
                      rec.get("client_mac"), rec.get("client_ip"), rec.get("client_id"),
                      rec.get("client_description"), rec.get("ssid"), rec.get("auth_reason"),
                      rec.get("total_requested_time"), rec.get("authorized_label"),
                      rec.get("expires_label"), rec.get("authorized_at"), rec.get("expires_at"),
-                     now, now, rec.get("raw_json")),
+                     _b(rec.get("is_authorized")), now, now, rec.get("raw_json")),
                 )
                 rec["_session_key"] = key
                 new_rows.append(rec)
