@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meraki Guest Audit</title>
+<style>
+  :root { --bg:#0f1116; --panel:#161a22; --line:#262c38; --txt:#e6e9ef; --mut:#8b94a7; --acc:#4a86ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,"Segoe UI",Tahoma,sans-serif; background:var(--bg); color:var(--txt); }
+  header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:16px; margin:0; font-weight:600; }
+  .stat { color:var(--mut); font-size:13px; }
+  .bar { padding:12px 20px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; border-bottom:1px solid var(--line); }
+  input, button { background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-size:13px; }
+  button { cursor:pointer; }
+  button.acc { background:var(--acc); border-color:var(--acc); color:#fff; }
+  button:hover { filter:brightness(1.12); }
+  .wrap { padding:0 20px 40px; overflow:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin-top:12px; }
+  th, td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mut); font-weight:600; position:sticky; top:0; background:var(--bg); }
+  tr:hover td { background:#12151c; }
+  .mono { font-family:ui-monospace,Menlo,monospace; color:var(--mut); }
+  .empty { color:var(--mut); padding:40px 0; text-align:center; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Meraki Guest Audit</h1>
+    <span class="stat" id="stat">กำลังโหลด…</span>
+  </header>
+  <div class="bar">
+    <input id="q" placeholder="ค้นหา อีเมล / ชื่อ / MAC / sponsor" style="min-width:260px">
+    <input id="from" type="date">
+    <input id="to" type="date">
+    <button onclick="load()">ค้นหา</button>
+    <button class="acc" onclick="syncNow()">Sync ตอนนี้</button>
+    <button onclick="dl('xlsx')">Export Excel</button>
+    <button onclick="dl('csv')">Export CSV</button>
+    <button onclick="purge()" style="margin-left:auto; border-color:#a32d2d; color:#f09595">ล้าง log เก่า</button>
+  </div>
+  <div class="wrap">
+    <table id="tbl">
+      <thead><tr>
+        <th>ชื่อ Guest</th><th>อีเมล Guest</th><th>Sponsor</th><th>MAC</th><th>IP</th>
+        <th>SSID</th><th>Duration</th><th>Authorized</th><th>Expires</th><th>First Seen</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty" style="display:none">ยังไม่มีข้อมูล — กด “Sync ตอนนี้”</div>
+  </div>
+<script>
+const $ = s => document.querySelector(s);
+function qs(){ const p=new URLSearchParams();
+  if($('#q').value) p.set('q',$('#q').value);
+  if($('#from').value) p.set('date_from',$('#from').value);
+  if($('#to').value) p.set('date_to',$('#to').value+'T23:59:59');
+  return p.toString(); }
+function fmt(t){ return t ? new Date(t).toLocaleString('th-TH') : '—'; }
+function dur(s){ if(!s) return '—'; const h=Math.round(s/3600); return h>=24?(h/24).toFixed(0)+' วัน':h+' ชม.'; }
+
+async function load(){
+  const r = await fetch('/api/sessions?'+qs());
+  const data = await r.json();
+  const rows = $('#rows'); rows.innerHTML='';
+  $('#empty').style.display = data.length ? 'none' : 'block';
+  for(const x of data){
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td>${x.guest_name||'—'}</td><td>${x.guest_email||'—'}</td>
+      <td>${x.sponsor_email||'—'}</td><td class="mono">${x.client_mac||'—'}</td>
+      <td class="mono">${x.client_ip||'—'}</td><td>${x.ssid||'—'}</td>
+      <td>${dur(x.total_requested_time)}</td><td>${fmt(x.authorized_at)}</td>
+      <td>${fmt(x.expires_at)}</td><td>${fmt(x.first_captured_at)}</td>`;
+    rows.appendChild(tr);
+  }
+}
+let RET = 120;
+async function stat(){
+  const r = await fetch('/healthz'); const h = await r.json();
+  const lr = h.last_run||{}; RET = h.retention_days;
+  $('#stat').textContent = `รวม ${h.total} sessions · เก่าสุด ${h.oldest?fmt(h.oldest):'—'} · retention ${h.retention_days} วัน (auto-purge: ${h.auto_purge?'เปิด':'ปิด'}) · รอบล่าสุด ${lr.at?fmt(lr.at):'—'} ${lr.ok===false?'(ERROR: '+lr.error+')':''}`;
+}
+async function purge(){
+  const d = prompt(`ลบ log ที่เก่ากว่ากี่วัน? (พ.ร.บ.คอมฯ ขั้นต่ำ 90 วัน)\nพิมพ์ 0 = ลบทั้งหมด`, RET);
+  if(d===null) return;
+  const days = parseInt(d,10); if(isNaN(days)||days<0) return alert('ค่าไม่ถูกต้อง');
+  if(days>0 && days<90 && !confirm(`⚠ ${days} วัน ต่ำกว่าขั้นต่ำ พ.ร.บ.คอมฯ (90 วัน) แน่ใจ?`)) return;
+  if(days===0 && !confirm('⚠ ลบทั้งหมด ยืนยัน?')) return;
+  const r = await fetch('/api/purge?days='+days,{method:'POST'}); const j = await r.json();
+  alert(`ลบไป ${j.deleted} session`); await stat(); await load();
+}
+async function syncNow(){
+  $('#stat').textContent='กำลัง sync…';
+  await fetch('/api/sync',{method:'POST'}); await stat(); await load();
+}
+function dl(kind){ window.location = `/api/export/${kind}?`+qs(); }
+load(); stat(); setInterval(stat, 30000);
+</script>
+</body>
+</html>

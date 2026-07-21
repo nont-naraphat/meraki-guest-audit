@@ -1,0 +1,36 @@
+services:
+  meraki-guest-audit:
+    build: .
+    container_name: meraki-guest-audit
+    restart: unless-stopped
+    ports:
+      - "8092:8092"          # ซ้าย = port บน Synology (เลี่ยง 8091/18081/18090/8800), ขวาห้ามแตะ
+    volumes:
+      - guest_audit_data:/data
+    mem_limit: 512m          # กัน OOM ตาม lesson เดิม
+    mem_reservation: 128m
+    environment:
+      # ค่าพวกนี้ดึงจาก Portainer > Environment variables (Git deploy)
+      # หรือจากไฟล์ .env ในโฟลเดอร์เดียวกัน (local compose) -- ได้ทั้งคู่
+      MERAKI_API_KEY:          ${MERAKI_API_KEY}
+      MERAKI_NETWORK_ID:       ${MERAKI_NETWORK_ID}
+      MERAKI_API_BASE:         ${MERAKI_API_BASE:-https://api.meraki.com/api/v1}
+      GUEST_SSID_NAME:         ${GUEST_SSID_NAME:-}
+      CLIENT_TIMESPAN:         ${CLIENT_TIMESPAN:-86400}
+      MERAKI_CLIENT_SHOW_URL:  ${MERAKI_CLIENT_SHOW_URL}
+      MERAKI_DASH_COOKIE:      ${MERAKI_DASH_COOKIE}
+      MERAKI_DASH_HEADERS_JSON: ${MERAKI_DASH_HEADERS_JSON:-{}}
+      SCRAPE_CONCURRENCY:      ${SCRAPE_CONCURRENCY:-4}
+      POLL_INTERVAL_MIN:       ${POLL_INTERVAL_MIN:-5}
+      RETENTION_DAYS:          ${RETENTION_DAYS:-120}
+      AUTO_PURGE_ENABLED:      ${AUTO_PURGE_ENABLED:-false}
+      CLEANUP_HOUR:            ${CLEANUP_HOUR:-3}
+      SYSLOG_ENABLED:          ${SYSLOG_ENABLED:-false}
+      SYSLOG_HOST:             ${SYSLOG_HOST:-192.168.0.6}
+      SYSLOG_PORT:             ${SYSLOG_PORT:-514}
+      SYSLOG_PROTO:            ${SYSLOG_PROTO:-udp}
+      SYSLOG_TAG:              ${SYSLOG_TAG:-meraki-guest-audit}
+      DB_PATH:                 /data/guest_audit.db
+
+volumes:
+  guest_audit_data:
