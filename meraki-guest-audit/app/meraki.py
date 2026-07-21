@@ -116,6 +116,36 @@ async def _scrape_one(client: httpx.AsyncClient, cid: str):
     return None
 
 
+async def get_splash_status(api_client: httpx.AsyncClient, cid: str) -> dict | None:
+    """official API: splashAuthorizationStatus -> คำตอบชี้ขาดว่า authen ผ่านไหม
+    คืน {is_authorized, authorized_at, expires_at} หรือ None ถ้าดึงไม่ได้"""
+    url = f"{API_BASE}/networks/{NETWORK_ID}/clients/{cid}/splashAuthorizationStatus"
+    try:
+        r = await api_client.get(url)
+        if r.status_code == 429:
+            await asyncio.sleep(int(r.headers.get("Retry-After", "2")))
+            r = await api_client.get(url)
+        r.raise_for_status()
+        ssids = (r.json() or {}).get("ssids", {}) or {}
+    except Exception as e:
+        log.warning("splashAuthorizationStatus %s ล้มเหลว: %s", cid, e)
+        return None
+
+    chosen = None
+    for entry in ssids.values():
+        if entry.get("isAuthorized"):        # เจอตัวที่ authorized -> เอาตัวนี้เลย
+            chosen = entry
+            break
+        chosen = chosen or entry             # ไม่งั้นเก็บตัวแรกไว้เผื่อ
+    if chosen is None:
+        return None
+    return {
+        "is_authorized": bool(chosen.get("isAuthorized")),
+        "authorized_at": chosen.get("authorizedAt"),
+        "expires_at":    chosen.get("expiresAt"),
+    }
+
+
 async def enrich_with_splash(clients: list[dict]) -> list[dict]:
     """
     รับ list client จาก official API -> merge ข้อมูล wireless_bigacl เข้าไป
@@ -135,7 +165,8 @@ async def enrich_with_splash(clients: list[dict]) -> list[dict]:
     sem = asyncio.Semaphore(_SCRAPE_CONCURRENCY)
     results: list[dict] = []
 
-    async with httpx.AsyncClient(timeout=30, headers=headers, follow_redirects=False) as c:
+    api_client = httpx.AsyncClient(timeout=30, headers=_api_headers())
+    async with httpx.AsyncClient(timeout=30, headers=headers, follow_redirects=False) as c, api_client:
         async def worker(cli: dict):
             cid = cli.get("id")
             if not cid:
@@ -144,11 +175,22 @@ async def enrich_with_splash(clients: list[dict]) -> list[dict]:
                 entry = await _scrape_one(c, cid)
             if not entry:
                 return
+            # timestamp โดยประมาณจาก label (fallback)
             now = datetime.now(timezone.utc)
             auth_td = _parse_relative(entry.get("authorized", ""))
             exp_td = _parse_relative(entry.get("expires", ""))
-            authorized_at = (now - auth_td) if auth_td else None
-            expires_at = (now + exp_td) if exp_td else None
+            authorized_at = (now - auth_td).isoformat() if auth_td else None
+            expires_at = (now + exp_td).isoformat() if exp_td else None
+
+            # ค่าชี้ขาดจาก official API (แม่นกว่า + ไม่ drift)
+            is_authorized = None
+            async with sem:
+                st = await get_splash_status(api_client, cid)
+            if st:
+                is_authorized = st["is_authorized"]
+                authorized_at = st["authorized_at"] or authorized_at   # ใช้ของ official ก่อน
+                expires_at = st["expires_at"] or expires_at
+
             results.append({
                 "guest_name":    entry.get("guest_name"),
                 "guest_email":   entry.get("guest_email"),
@@ -157,8 +199,9 @@ async def enrich_with_splash(clients: list[dict]) -> list[dict]:
                 "total_requested_time": entry.get("total_requested_time"),
                 "authorized_label": entry.get("authorized"),
                 "expires_label":    entry.get("expires"),
-                "authorized_at": authorized_at.isoformat() if authorized_at else None,
-                "expires_at":    expires_at.isoformat() if expires_at else None,
+                "authorized_at": authorized_at,
+                "expires_at":    expires_at,
+                "is_authorized": is_authorized,
                 "client_id":     cid,
                 "client_mac":    cli.get("mac"),
                 "client_ip":     cli.get("ip"),
