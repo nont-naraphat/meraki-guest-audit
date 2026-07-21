@@ -43,7 +43,7 @@
   <div class="wrap">
     <table id="tbl">
       <thead><tr>
-        <th>ชื่อ Guest</th><th>อีเมล Guest</th><th>Sponsor</th><th>MAC</th><th>IP</th>
+        <th>ชื่อ Guest</th><th>อีเมล Guest</th><th>Sponsor</th><th>Description</th><th>MAC</th><th>IP</th>
         <th>SSID</th><th>Duration</th><th>Authorized</th><th>Expires</th><th>First Seen</th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -68,7 +68,7 @@ async function load(){
   for(const x of data){
     const tr=document.createElement('tr');
     tr.innerHTML = `<td>${x.guest_name||'—'}</td><td>${x.guest_email||'—'}</td>
-      <td>${x.sponsor_email||'—'}</td><td class="mono">${x.client_mac||'—'}</td>
+      <td>${x.sponsor_email||'—'}</td><td>${x.client_description||'—'}</td><td class="mono">${x.client_mac||'—'}</td>
       <td class="mono">${x.client_ip||'—'}</td><td>${x.ssid||'—'}</td>
       <td>${dur(x.total_requested_time)}</td><td>${fmt(x.authorized_at)}</td>
       <td>${fmt(x.expires_at)}</td><td>${fmt(x.first_captured_at)}</td>`;
